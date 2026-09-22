@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useSchedule } from './composables/useSchedule'
 import { WEEKDAY_NAMES, makeDemoCourses } from './data/defaults'
@@ -28,6 +28,8 @@ const {
 
 const activeTab = ref('schedule')
 const mobileDay = ref(weekdayOf(new Date()))
+// 若今天是周末且未开启周末显示，回落到周五
+if (mobileDay.value > 5 && !settings.showWeekend) mobileDay.value = 5
 
 const courseDialogVisible = ref(false)
 const editingCourse = ref(null)
@@ -83,6 +85,73 @@ function pickWeek(w) {
   setWeek(w)
 }
 
+// ---- 手机端：左右滑动切换星期，跨周边界自动换周 ----
+const swipeDir = ref(0) // 1 = 切到下一天（内容自右进入）；-1 = 上一天
+const dayKey = computed(() => weekNo.value * 10 + mobileDay.value)
+const touchStart = ref(null)
+
+function shiftDay(dir) {
+  const list = mobileDays.value
+  const idx = list.findIndex((d) => d.day === mobileDay.value)
+  if (idx < 0) return
+  let ni = idx + dir
+  let nw = weekNo.value
+  if (ni >= list.length) {
+    if (nw >= settings.totalWeeks) return
+    nw += 1
+    ni = 0
+  } else if (ni < 0) {
+    if (nw <= 1) return
+    nw -= 1
+    ni = list.length - 1
+  }
+  swipeDir.value = dir
+  if (nw !== weekNo.value) setWeek(nw)
+  mobileDay.value = list[ni].day
+}
+
+function onTouchStart(e) {
+  const t = e.touches[0]
+  touchStart.value = { x: t.clientX, y: t.clientY, t: Date.now() }
+}
+function onTouchEnd(e) {
+  const s = touchStart.value
+  touchStart.value = null
+  if (!s) return
+  const t = e.changedTouches[0]
+  const dx = t.clientX - s.x
+  const dy = t.clientY - s.y
+  const dt = Date.now() - s.t
+  // 横向位移足够大、明显主导纵向、手势不太慢才判定为翻页
+  if (dt > 600 || Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy) * 1.2) return
+  shiftDay(dx < 0 ? 1 : -1)
+}
+
+// ---- 星期条：选中项自动滚动居中 ----
+const stripRef = ref(null)
+const dayBtnRefs = {}
+function setDayBtnRef(day, el) {
+  if (el) dayBtnRefs[day] = el
+}
+function centerActiveDay(smooth = true) {
+  if (activeTab.value !== 'schedule') return
+  const el = dayBtnRefs[mobileDay.value]
+  const box = stripRef.value
+  if (!el || !box) return
+  const left = el.offsetLeft - (box.clientWidth - el.offsetWidth) / 2
+  box.scrollTo({ left, behavior: smooth ? 'smooth' : 'auto' })
+}
+watch(mobileDay, () => nextTick(() => centerActiveDay()))
+watch(activeTab, (v) => nextTick(() => centerActiveDay(v === 'schedule')))
+// 设置中关闭周末显示时，若选中的是周末则回落到周五
+watch(
+  () => settings.showWeekend,
+  (v) => {
+    if (!v && mobileDay.value > 5) mobileDay.value = 5
+  }
+)
+onMounted(() => centerActiveDay(false))
+
 function openAdd() {
   editingCourse.value = null
   courseDialogVisible.value = true
@@ -134,7 +203,7 @@ function loadDemoData() {
               <el-icon><ArrowLeft /></el-icon>
             </el-button>
             <el-dropdown trigger="click" @command="pickWeek" placement="bottom-start">
-              <el-button size="small" class="!min-w-[132px]">
+              <el-button size="small" class="!min-w-0 md:!min-w-[132px]">
                 <span class="font-semibold">第{{ weekNo }}周</span>
                 <span class="text-gray-400 text-[11px] ml-1 hidden md:inline">
                   {{ weekRangeText }}
@@ -165,7 +234,7 @@ function loadDemoData() {
             size="small"
             type="primary"
             plain
-            class="ml-1"
+            class="ml-1 !px-2 md:!px-3 !text-[12px] whitespace-nowrap"
             @click="goCurrentWeek"
           >
             回到本周
@@ -188,47 +257,68 @@ function loadDemoData() {
       <!-- 手机端星期切换 -->
       <div
         v-if="activeTab === 'schedule'"
-        class="md:hidden shrink-0 bg-white border-b border-gray-100 flex overflow-x-auto schedule-scroll"
+        ref="stripRef"
+        class="md:hidden shrink-0 relative bg-white border-b border-gray-100 flex overflow-x-auto schedule-scroll day-strip"
       >
         <button
           v-for="d in mobileDays"
           :key="d.day"
-          class="flex-1 min-w-[52px] py-2 flex flex-col items-center gap-0.5 relative"
-          :class="mobileDay === d.day ? 'text-brand-500' : 'text-gray-500'"
+          :ref="(el) => setDayBtnRef(d.day, el)"
+          class="shrink-0 px-2.5 py-1.5 flex flex-col items-center select-none"
           @click="mobileDay = d.day"
         >
-          <span class="text-[12px]">{{ d.name }}</span>
-          <span class="text-[11px] opacity-70">{{ d.date }}</span>
           <span
-            v-if="d.today"
-            class="absolute top-1 right-2 w-1.5 h-1.5 rounded-full"
-            :class="mobileDay === d.day ? 'bg-brand-500' : 'bg-gray-300'"
-          />
-          <span
-            v-if="mobileDay === d.day"
-            class="absolute bottom-0 left-1/2 -translate-x-1/2 w-6 h-0.5 rounded bg-brand-500"
-          />
+            class="relative px-3 py-1 rounded-xl flex flex-col items-center transition-all duration-200"
+            :class="
+              mobileDay === d.day
+                ? 'bg-brand-500 text-white shadow-md shadow-brand-500/30 scale-[1.03]'
+                : 'text-gray-500'
+            "
+          >
+            <span class="text-[12px] font-medium leading-tight">{{ d.name }}</span>
+            <span
+              class="text-[10px] leading-tight"
+              :class="mobileDay === d.day ? 'text-white/85' : 'text-gray-400'"
+            >
+              {{ d.date }}
+            </span>
+            <span
+              v-if="d.today"
+              class="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full border-2 border-white"
+              :class="mobileDay === d.day ? 'bg-white' : 'bg-brand-500'"
+            />
+          </span>
         </button>
       </div>
 
       <!-- 主内容 -->
       <main class="flex-1 overflow-hidden relative">
-        <ScheduleGrid
+        <!-- 桌面全天视图：显隐控制放在包裹层（组件根节点自带 flex 类，会与 hidden 冲突） -->
+        <div v-show="activeTab === 'schedule'" class="hidden md:block h-full">
+          <ScheduleGrid
+            :week="weekNo"
+            :day-filter="0"
+            class="h-full"
+            @edit="openEdit"
+            @delete="onDelete"
+          />
+        </div>
+        <div
           v-show="activeTab === 'schedule'"
-          :week="weekNo"
-          :day-filter="0"
-          class="hidden md:block h-full"
-          @edit="openEdit"
-          @delete="onDelete"
-        />
-        <ScheduleGrid
-          v-show="activeTab === 'schedule'"
-          :week="weekNo"
-          :day-filter="mobileDay"
           class="md:hidden h-full"
-          @edit="openEdit"
-          @delete="onDelete"
-        />
+          @touchstart.passive="onTouchStart"
+          @touchend.passive="onTouchEnd"
+        >
+          <ScheduleGrid
+            :key="dayKey"
+            :week="weekNo"
+            :day-filter="mobileDay"
+            class="h-full"
+            :class="swipeDir === 1 ? 'day-slide-next' : swipeDir === -1 ? 'day-slide-prev' : ''"
+            @edit="openEdit"
+            @delete="onDelete"
+          />
+        </div>
         <CourseList
           v-show="activeTab === 'courses'"
           class="h-full"
@@ -261,8 +351,9 @@ function loadDemoData() {
         <!-- 手机端悬浮添加按钮 -->
         <button
           v-if="activeTab === 'schedule' && courses.length"
-          class="md:hidden absolute right-4 w-13 h-13 rounded-full bg-brand-500 text-white shadow-lg flex-center active:scale-95 transition-transform"
-          style="bottom: calc(var(--tabbar-h) + 18px); width: 52px; height: 52px"
+          type="button"
+          class="md:hidden absolute right-4 rounded-full bg-brand-500 text-white shadow-lg shadow-brand-500/35 flex-center active:scale-95 transition-transform z-10"
+          style="bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 16px); width: 52px; height: 52px"
           @click="openAdd"
         >
           <el-icon :size="24"><Plus /></el-icon>
@@ -271,24 +362,35 @@ function loadDemoData() {
 
       <!-- 手机端底部导航 -->
       <nav
-        class="safe-bottom md:hidden shrink-0 h-14 bg-white border-t border-gray-200 flex z-20"
+        class="tabbar safe-bottom md:hidden shrink-0 z-20 bg-white/95 backdrop-blur-xl"
       >
-        <button
-          v-for="t in [
-            { key: 'schedule', label: '课表', icon: 'Calendar' },
-            { key: 'courses', label: '课程', icon: 'Notebook' },
-            { key: 'settings', label: '设置', icon: 'Setting' }
-          ]"
-          :key="t.key"
-          class="flex-1 flex-center flex-col gap-0.5"
-          :class="activeTab === t.key ? 'text-brand-500' : 'text-gray-400'"
-          @click="t.key === 'settings' ? (settingsVisible = true) : (activeTab = t.key)"
-        >
-          <el-icon :size="21">
-            <component :is="t.icon" />
-          </el-icon>
-          <span class="text-[11px]">{{ t.label }}</span>
-        </button>
+        <div class="h-[58px] flex">
+          <button
+            v-for="t in [
+              { key: 'schedule', label: '课表', icon: 'Calendar' },
+              { key: 'courses', label: '课程', icon: 'Notebook' },
+              { key: 'settings', label: '设置', icon: 'Setting' }
+            ]"
+            :key="t.key"
+            type="button"
+            class="tab-item flex-1 flex-center flex-col gap-[3px] select-none transition-transform duration-150 active:scale-90"
+            :class="
+              activeTab === t.key || (t.key === 'settings' && settingsVisible)
+                ? 'is-active'
+                : ''
+            "
+            @click="t.key === 'settings' ? (settingsVisible = true) : (activeTab = t.key)"
+          >
+            <span class="tab-pill flex-center w-12 h-[30px] rounded-full transition-all duration-200">
+              <el-icon :size="20">
+                <component :is="t.icon" />
+              </el-icon>
+            </span>
+            <span class="tab-label text-[11px] leading-none transition-colors duration-200">{{
+              t.label
+            }}</span>
+          </button>
+        </div>
       </nav>
 
       <!-- 弹窗 -->

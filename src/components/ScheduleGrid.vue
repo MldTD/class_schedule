@@ -120,8 +120,9 @@ function onDelete(course) {
 
 <template>
   <div class="h-full flex flex-col">
-    <!-- 表头：星期 + 日期 -->
+    <!-- 表头：星期 + 日期（仅桌面全天视图显示；手机单天视图由外层星期条承担，避免重复） -->
     <div
+      v-if="dayFilter === 0"
       class="grid sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-gray-200"
       :style="{ gridTemplateColumns: `48px repeat(${days.length}, minmax(64px, 1fr))` }"
     >
