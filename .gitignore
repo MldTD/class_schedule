@@ -1,0 +1,14 @@
+node_modules
+dist
+dist-tauri
+dist-capacitor
+.DS_Store
+*.local
+src-tauri/target
+android/app/build
+android/.gradle
+android/local.properties
+android/app/release
+android/app/src/main/assets/public
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json

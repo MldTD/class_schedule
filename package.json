@@ -1,0 +1,36 @@
+{
+  "name": "class-schedule",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:tauri": "vite build --mode tauri",
+    "build:capacitor": "vite build --mode capacitor",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "cap:add:android": "cap add android",
+    "cap:sync": "cap sync",
+    "android": "vite build --mode capacitor && cap sync android"
+  },
+  "dependencies": {
+    "@capacitor/core": "^6.2.0",
+    "@element-plus/icons-vue": "^2.3.1",
+    "@tauri-apps/api": "^2.1.1",
+    "element-plus": "^2.9.1",
+    "ics-parser": "^0.1.5",
+    "vue": "^3.5.13",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/cli": "^6.2.0",
+    "@tauri-apps/cli": "^2.1.0",
+    "@vitejs/plugin-vue": "^5.2.1",
+    "unocss": "^0.65.3",
+    "vite": "^5.4.11"
+  }
+}
