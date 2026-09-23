@@ -129,20 +129,7 @@ body {
   padding-top: env(safe-area-inset-top, 0);
 }
 
-/* 手机端星期条：隐藏横向滚动条；桌面端隐藏（双保险，避免与 flex 类顺序冲突） */
-.day-strip {
-  scrollbar-width: none;
-}
-@media (min-width: 768px) {
-  .day-strip {
-    display: none;
-  }
-}
-.day-strip::-webkit-scrollbar {
-  display: none;
-}
-
-/* 手机端左右滑动换天动画 */
+/* 手机端左右滑动切换周次动画 */
 @keyframes day-slide-in-next {
   from {
     opacity: 0.2;

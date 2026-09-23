@@ -1,15 +1,9 @@
 <script setup>
-import { ref, computed, watch, nextTick, onMounted } from 'vue'
+import { ref, computed, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useSchedule } from './composables/useSchedule'
-import { WEEKDAY_NAMES, makeDemoCourses } from './data/defaults'
-import {
-  mondayOfWeek,
-  addDays,
-  fmtDate,
-  weekdayOf,
-  currentWeekNo
-} from './utils/time'
+import { makeDemoCourses } from './data/defaults'
+import { mondayOfWeek, addDays, currentWeekNo } from './utils/time'
 import ScheduleGrid from './components/ScheduleGrid.vue'
 import CourseList from './components/CourseList.vue'
 import CourseDialog from './components/CourseDialog.vue'
@@ -21,15 +15,11 @@ const {
   settings,
   weekNo,
   setWeek,
-  goCurrentWeek,
   removeCourse,
   loadDemo
 } = useSchedule()
 
 const activeTab = ref('schedule')
-const mobileDay = ref(weekdayOf(new Date()))
-// 若今天是周末且未开启周末显示，回落到周五
-if (mobileDay.value > 5 && !settings.showWeekend) mobileDay.value = 5
 
 const courseDialogVisible = ref(false)
 const editingCourse = ref(null)
@@ -63,51 +53,39 @@ function parseStart(s) {
   return new Date(y, m - 1, d)
 }
 
-const mobileDays = computed(() =>
-  (settings.showWeekend ? [1, 2, 3, 4, 5, 6, 7] : [1, 2, 3, 4, 5]).map((d) => {
-    const date = addDays(weekMonday.value, d - 1)
-    return {
-      day: d,
-      name: WEEKDAY_NAMES[d - 1],
-      date: `${date.getMonth() + 1}/${date.getDate()}`,
-      today: fmtDate(date) === fmtDate(new Date())
-    }
-  })
-)
-
 function prevWeek() {
-  setWeek(weekNo.value - 1)
+  changeWeek(weekNo.value - 1, -1)
 }
 function nextWeek() {
-  setWeek(weekNo.value + 1)
+  changeWeek(weekNo.value + 1, 1)
 }
 function pickWeek(w) {
-  setWeek(w)
+  changeWeek(w, 0)
+}
+function backToCurrent() {
+  changeWeek(currentWeekNo(settings.semesterStart, settings.totalWeeks), 0)
 }
 
-// ---- 手机端：左右滑动切换星期，跨周边界自动换周 ----
-const swipeDir = ref(0) // 1 = 切到下一天（内容自右进入）；-1 = 上一天
-const dayKey = computed(() => weekNo.value * 10 + mobileDay.value)
+// ---- 手机端：左右滑动切换周次（整周视图铺满屏宽，无横向滚动，手势无冲突） ----
+const swipeDir = ref(0) // 1 = 下一周（内容自右进入）；-1 = 上一周；0 = 无动画
+const mobWrapRef = ref(null)
 const touchStart = ref(null)
+let savedScrollTop = 0
 
-function shiftDay(dir) {
-  const list = mobileDays.value
-  const idx = list.findIndex((d) => d.day === mobileDay.value)
-  if (idx < 0) return
-  let ni = idx + dir
-  let nw = weekNo.value
-  if (ni >= list.length) {
-    if (nw >= settings.totalWeeks) return
-    nw += 1
-    ni = 0
-  } else if (ni < 0) {
-    if (nw <= 1) return
-    nw -= 1
-    ni = list.length - 1
-  }
+function changeWeek(n, dir) {
+  if (n === weekNo.value || n < 1 || n > settings.totalWeeks) return
   swipeDir.value = dir
-  if (nw !== weekNo.value) setWeek(nw)
-  mobileDay.value = list[ni].day
+  const scroller = mobWrapRef.value && mobWrapRef.value.querySelector('.schedule-scroll')
+  savedScrollTop = scroller ? scroller.scrollTop : 0
+  setWeek(n)
+  // :key 会重建网格，恢复纵向滚动位置
+  nextTick(() => {
+    const el = mobWrapRef.value && mobWrapRef.value.querySelector('.schedule-scroll')
+    if (el) el.scrollTop = savedScrollTop
+  })
+}
+function shiftWeek(dir) {
+  changeWeek(weekNo.value + dir, dir)
 }
 
 function onTouchStart(e) {
@@ -122,35 +100,10 @@ function onTouchEnd(e) {
   const dx = t.clientX - s.x
   const dy = t.clientY - s.y
   const dt = Date.now() - s.t
-  // 横向位移足够大、明显主导纵向、手势不太慢才判定为翻页
+  // 横向位移足够大、明显主导纵向、手势不太慢才判定为翻周
   if (dt > 600 || Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy) * 1.2) return
-  shiftDay(dx < 0 ? 1 : -1)
+  shiftWeek(dx < 0 ? 1 : -1)
 }
-
-// ---- 星期条：选中项自动滚动居中 ----
-const stripRef = ref(null)
-const dayBtnRefs = {}
-function setDayBtnRef(day, el) {
-  if (el) dayBtnRefs[day] = el
-}
-function centerActiveDay(smooth = true) {
-  if (activeTab.value !== 'schedule') return
-  const el = dayBtnRefs[mobileDay.value]
-  const box = stripRef.value
-  if (!el || !box) return
-  const left = el.offsetLeft - (box.clientWidth - el.offsetWidth) / 2
-  box.scrollTo({ left, behavior: smooth ? 'smooth' : 'auto' })
-}
-watch(mobileDay, () => nextTick(() => centerActiveDay()))
-watch(activeTab, (v) => nextTick(() => centerActiveDay(v === 'schedule')))
-// 设置中关闭周末显示时，若选中的是周末则回落到周五
-watch(
-  () => settings.showWeekend,
-  (v) => {
-    if (!v && mobileDay.value > 5) mobileDay.value = 5
-  }
-)
-onMounted(() => centerActiveDay(false))
 
 function openAdd() {
   editingCourse.value = null
@@ -235,7 +188,7 @@ function loadDemoData() {
             type="primary"
             plain
             class="ml-1 !px-2 md:!px-3 !text-[12px] whitespace-nowrap"
-            @click="goCurrentWeek"
+            @click="backToCurrent"
           >
             回到本周
           </el-button>
@@ -254,43 +207,6 @@ function loadDemoData() {
         </el-button>
       </header>
 
-      <!-- 手机端星期切换 -->
-      <div
-        v-if="activeTab === 'schedule'"
-        ref="stripRef"
-        class="md:hidden shrink-0 relative bg-white border-b border-gray-100 flex overflow-x-auto schedule-scroll day-strip"
-      >
-        <button
-          v-for="d in mobileDays"
-          :key="d.day"
-          :ref="(el) => setDayBtnRef(d.day, el)"
-          class="shrink-0 px-2.5 py-1.5 flex flex-col items-center select-none"
-          @click="mobileDay = d.day"
-        >
-          <span
-            class="relative px-3 py-1 rounded-xl flex flex-col items-center transition-all duration-200"
-            :class="
-              mobileDay === d.day
-                ? 'bg-brand-500 text-white shadow-md shadow-brand-500/30 scale-[1.03]'
-                : 'text-gray-500'
-            "
-          >
-            <span class="text-[12px] font-medium leading-tight">{{ d.name }}</span>
-            <span
-              class="text-[10px] leading-tight"
-              :class="mobileDay === d.day ? 'text-white/85' : 'text-gray-400'"
-            >
-              {{ d.date }}
-            </span>
-            <span
-              v-if="d.today"
-              class="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full border-2 border-white"
-              :class="mobileDay === d.day ? 'bg-white' : 'bg-brand-500'"
-            />
-          </span>
-        </button>
-      </div>
-
       <!-- 主内容 -->
       <main class="flex-1 overflow-hidden relative">
         <!-- 桌面全天视图：显隐控制放在包裹层（组件根节点自带 flex 类，会与 hidden 冲突） -->
@@ -305,14 +221,16 @@ function loadDemoData() {
         </div>
         <div
           v-show="activeTab === 'schedule'"
+          ref="mobWrapRef"
           class="md:hidden h-full"
           @touchstart.passive="onTouchStart"
           @touchend.passive="onTouchEnd"
         >
           <ScheduleGrid
-            :key="dayKey"
+            :key="'w' + weekNo"
             :week="weekNo"
-            :day-filter="mobileDay"
+            :day-filter="0"
+            fit
             class="h-full"
             :class="swipeDir === 1 ? 'day-slide-next' : swipeDir === -1 ? 'day-slide-prev' : ''"
             @edit="openEdit"

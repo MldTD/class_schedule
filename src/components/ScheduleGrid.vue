@@ -7,7 +7,9 @@ import { mondayOfWeek, addDays, weekdayOf, fmtDate, summarizeWeeks } from '../ut
 const props = defineProps({
   week: { type: Number, required: true },
   // 0 = 显示全部天（桌面）；1-7 = 只显示某一天（手机）
-  dayFilter: { type: Number, default: 0 }
+  dayFilter: { type: Number, default: 0 },
+  // 紧凑模式：所有天列等宽铺满容器（手机整周视图，避免横向滚动与翻周手势冲突）
+  fit: { type: Boolean, default: false }
 })
 const emit = defineEmits(['edit', 'delete'])
 
@@ -32,6 +34,14 @@ function isToday(day) {
 
 const periods = computed(() => settings.periodTimes)
 const totalH = computed(() => periods.value.length * ROW_H)
+
+const colsStyle = computed(() => {
+  const timeCol = props.fit ? '42px' : '48px'
+  const minCol = props.fit ? '0' : '64px'
+  return {
+    gridTemplateColumns: `${timeCol} repeat(${days.value.length}, minmax(${minCol}, 1fr))`
+  }
+})
 
 /** 按天收集本周课程块，并对时间冲突分栏 */
 const layout = computed(() => {
@@ -120,11 +130,11 @@ function onDelete(course) {
 
 <template>
   <div class="h-full flex flex-col">
-    <!-- 表头：星期 + 日期（仅桌面全天视图显示；手机单天视图由外层星期条承担，避免重复） -->
+    <!-- 表头：节次 + 星期/日期（单天过滤模式 dayFilter=1-7 时隐藏） -->
     <div
       v-if="dayFilter === 0"
       class="grid sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-gray-200"
-      :style="{ gridTemplateColumns: `48px repeat(${days.length}, minmax(64px, 1fr))` }"
+      :style="colsStyle"
     >
       <div class="h-11 flex-center text-[11px] text-gray-400">节次</div>
       <div
@@ -142,10 +152,7 @@ function onDelete(course) {
 
     <!-- 课表主体 -->
     <div class="flex-1 schedule-scroll overflow-auto">
-      <div
-        class="grid min-h-full"
-        :style="{ gridTemplateColumns: `48px repeat(${days.length}, minmax(64px, 1fr))` }"
-      >
+      <div class="grid min-h-full" :style="colsStyle">
         <!-- 节次/时间列 -->
         <div class="relative" :style="{ height: `${totalH}px` }">
           <div
